@@ -9,7 +9,8 @@ export default /* glsl */`
 	// sampling a textureCube (not generally normalized ).
 
 	float getFace( vec3 direction ) {
-
+		// precision highp float;
+		
 		vec3 absDirection = abs( direction );
 
 		float face = - 1.0;
@@ -42,6 +43,7 @@ export default /* glsl */`
 
 	// RH coordinate system; PMREM face-indexing convention
 	vec2 getUV( vec3 direction, float face ) {
+		// precision highp float;
 
 		vec2 uv;
 
@@ -76,6 +78,7 @@ export default /* glsl */`
 	}
 
 	vec3 bilinearCubeUV( sampler2D envMap, vec3 direction, float mipInt ) {
+		precision highp float;
 
 		float face = getFace( direction );
 
@@ -85,6 +88,7 @@ export default /* glsl */`
 
 		float faceSize = exp2( mipInt );
 
+		// highp 
 		vec2 uv = getUV( direction, face ) * ( faceSize - 2.0 ) + 1.0;
 
 		if ( face > 2.0 ) {
@@ -136,6 +140,8 @@ export default /* glsl */`
 
 	float roughnessToMip( float roughness ) {
 
+		// precision highp float;
+
 		float mip = 0.0;
 
 		if ( roughness >= cubeUV_r1 ) {
@@ -164,6 +170,8 @@ export default /* glsl */`
 	}
 
 	vec4 textureCubeUV( sampler2D envMap, vec3 sampleDir, float roughness ) {
+
+		// precision highp float;
 
 		float mip = clamp( roughnessToMip( roughness ), cubeUV_m0, CUBEUV_MAX_MIP );
 

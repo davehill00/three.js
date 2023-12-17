@@ -73,9 +73,9 @@
       "GPUBufferUsage": "readonly",
       "GPUTextureUsage": "readonly",
       "QUnit": "readonly",
-      "Ammo":"readonly",
-      "XRRigidTransform":"readonly",
-      "XRMediaBinding":"readonly"
+      "Ammo": "readonly",
+      "XRRigidTransform": "readonly",
+      "XRMediaBinding": "readonly"
     },
     "rules": {
       "no-throw-literal": [
@@ -170,5 +170,8 @@
       "build/three.module.js"
     ],
     "directories": {}
+  },
+  "dependencies": {
+    "webgl-debug": "^2.0.1"
   }
 }

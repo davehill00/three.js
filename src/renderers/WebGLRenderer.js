@@ -47,6 +47,13 @@ import { WebGLMaterials } from './webgl/WebGLMaterials.js';
 import { WebGLUniformsGroups } from './webgl/WebGLUniformsGroups.js';
 import { createElementNS } from '../utils.js';
 
+// var WebGLDebugUtil = require('webgl-debug');
+// function throwOnGLError(err, funcName, args) {
+// 	throw WebGLDebugUtils.glEnumToString(err) 
+// 	+ " was caused by call to " 
+// 	+ funcName;
+//  };
+
 function createCanvasElement() {
 
 	const canvas = createElementNS( 'canvas' );
@@ -203,8 +210,12 @@ function WebGLRenderer( parameters = {} ) {
 		for ( let i = 0; i < contextNames.length; i ++ ) {
 
 			const contextName = contextNames[ i ];
-			const context = _canvas.getContext( contextName, contextAttributes );
-			if ( context !== null ) return context;
+			let context = _canvas.getContext( contextName, contextAttributes );
+			if ( context !== null ) 
+			{
+				// context = WebGLDebugUtils.makeDebugContext(context, throwOnGLError);
+				return context;
+			}
 
 		}
 

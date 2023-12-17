@@ -15,6 +15,72 @@ import {
 	UnsignedIntType,
 	UnsignedInt248Type,
 } from '../../constants.js';
+import { Object3D } from '../../core/Object3D.js';
+import {PlaneGeometry} from '../../geometries/PlaneGeometry';
+// import {Mesh} from '../../objects/Mesh.js'
+// import {MeshBasicMaterial} from '../../materials/MeshBasicMaterial.js';
+
+class WebXRQuadLayer extends Object3D
+{
+	constructor( quadLayer, quadRenderTarget, glBinding ) {
+		super();
+
+		this.layer = quadLayer;
+		this.renderTarget = quadRenderTarget;
+		this.glBinding = glBinding;
+
+		// @TODO - create the hole-punch mesh matching the quad layer
+		this.holePunchMesh = new Mesh(
+            new PlaneGeometry(2.0 * quadLayer.width, 2.0 * quadLayer.height),
+            new MeshBasicMaterial(
+                {
+                    colorWrite: false,
+                }
+            )
+        );
+		this.add(this.holePunchMesh);
+	}
+
+	setupToRender(renderer, frame)
+	{
+		if (renderer != null)
+		{
+			const glSubImage = this.glBinding.getSubImage( this.layer, frame );
+			let viewport = glSubImage.viewport;
+
+			renderer.setViewport(viewport.x, viewport.y, viewport.width, viewport.height);
+			renderer.setRenderTargetTextures(
+				this.renderTarget,
+				glSubImage.colorTexture,
+				undefined ); //glQuadLayer.ignoreDepthValues ? undefined : glSubImage.depthStencilTexture );
+
+			renderer.setRenderTarget( this.renderTarget );
+		}
+	}
+
+	updateMatrixWorld( force ) {
+
+		super.updateMatrixWorld( force );
+
+
+		// Update the position of the quad layer to match
+		// @TODO - check force and/or matrixNeedsUpdate flags?
+		// @TODO - I wish there was a way to not have to allocate a new object each time we do this.
+		this.layer.transform = new XRRigidTransform(this.position, this.quaternion);
+
+	}
+
+	updateWorldMatrix( updateParents, updateChildren ) {
+
+		super.updateWorldMatrix( updateParents, updateChildren );
+		
+		// Update the position of the quad layer to match
+		this.layer.transform = new XRRigidTransform(this.position, this.quaternion);
+
+	}
+}
+import { MeshBasicMaterial } from '../../materials/MeshBasicMaterial.js';
+import { Mesh } from '../../objects/Mesh.js';
 
 class WebXRManager extends EventDispatcher {
 
@@ -40,6 +106,11 @@ class WebXRManager extends EventDispatcher {
 		const attributes = gl.getContextAttributes();
 		let initialRenderTarget = null;
 		let newRenderTarget = null;
+
+		let glQuadLayer = null;
+		let glQuadRenderTarget = null;
+
+		let quadLayers = [];
 
 		const controllers = [];
 		const controllerInputSources = [];
@@ -87,6 +158,10 @@ class WebXRManager extends EventDispatcher {
 			return controller.getTargetRaySpace();
 
 		};
+
+		this.setQuadRenderer = function(_quadRenderer) {
+			quadRenderer = _quadRenderer;
+		}
 
 		this.getControllerGrip = function ( index ) {
 
@@ -176,6 +251,9 @@ class WebXRManager extends EventDispatcher {
 			session = null;
 			newRenderTarget = null;
 
+			glQuadLayer = null;
+			glQuadRenderTarget = null;
+
 			//
 
 			animation.stop();
@@ -264,6 +342,10 @@ class WebXRManager extends EventDispatcher {
 				session.addEventListener( 'end', onSessionEnd );
 				session.addEventListener( 'inputsourceschange', onInputSourcesChange );
 
+
+				customReferenceSpace = null;
+				referenceSpace = await session.requestReferenceSpace( referenceSpaceType );
+
 				if ( attributes.xrCompatible !== true ) {
 
 					await gl.makeXRCompatible();
@@ -331,8 +413,7 @@ class WebXRManager extends EventDispatcher {
 
 					glProjLayer = glBinding.createProjectionLayer( projectionlayerInit );
 
-					session.updateRenderState( { layers: [ glProjLayer ] } );
-
+					
 					newRenderTarget = new WebGLRenderTarget(
 						glProjLayer.textureWidth,
 						glProjLayer.textureHeight,
@@ -348,6 +429,44 @@ class WebXRManager extends EventDispatcher {
 					const renderTargetProperties = renderer.properties.get( newRenderTarget );
 					renderTargetProperties.__ignoreDepthValues = glProjLayer.ignoreDepthValues;
 
+
+					if (false)
+					{
+						const quadLayerInit = {
+							colorFormat: gl.RGBA8,
+							depthFormat: glDepthFormat,
+							textureType: 'texture',
+							viewPixelWidth: 1600,
+							viewPixelHeight: 1000,
+							width: 1.0,
+							height: 10/16.0,
+							layout: 'mono',
+							space: referenceSpace,
+							isStatic: false
+						};
+
+						glQuadLayer = glBinding.createQuadLayer(quadLayerInit);
+						glQuadLayer.transform = new XRRigidTransform( {y: 1.0, z: -2} );
+
+						session.updateRenderState( { layers: [glQuadLayer, glProjLayer]});
+
+						glQuadRenderTarget = new WebGLRenderTarget(
+							1600, 1000,
+							{
+								format: RGBAFormat,
+								type: UnsignedByteType,
+								depthTexture: new DepthTexture(1600, 1000, depthType, undefined, undefined, undefined, undefined, undefined, undefined, undefined, depthFormat),
+								encoding: renderer.outputEncoding, //@TODO - should be based on QuadRenderer outputEncoding
+								samples: 4 //attributes.antialias ? 4 : 0
+							}
+						);
+						glQuadRenderTarget.isXRRenderTarget = true; // TODO Remove this when possible, see #23278
+					}
+					else
+					{
+						session.updateRenderState( { layers: [ glProjLayer ] } );
+
+					}
 				}
 
 				newRenderTarget.isXRRenderTarget = true; // TODO Remove this when possible, see #23278
@@ -355,8 +474,7 @@ class WebXRManager extends EventDispatcher {
 				// Set foveation to maximum.
 				this.setFoveation( 1.0 );
 
-				customReferenceSpace = null;
-				referenceSpace = await session.requestReferenceSpace( referenceSpaceType );
+
 
 				animation.setContext( session );
 				animation.start();
@@ -627,7 +745,13 @@ class WebXRManager extends EventDispatcher {
 
 		let onAnimationFrameCallback = null;
 
+		let isInAnimationFrame = false;
 		function onAnimationFrame( time, frame ) {
+
+			if (isInAnimationFrame)
+				return;
+
+			// isInAnimationFrame = true;
 
 			pose = frame.getViewerPose( customReferenceSpace || referenceSpace );
 			xrFrame = frame;
@@ -714,6 +838,8 @@ class WebXRManager extends EventDispatcher {
 
 			}
 
+
+
 			//
 
 			for ( let i = 0; i < controllers.length; i ++ ) {
@@ -791,6 +917,7 @@ class WebXRManager extends EventDispatcher {
 			}
 
 			xrFrame = null;
+			isInAnimationFrame = false;
 
 		}
 
@@ -806,8 +933,94 @@ class WebXRManager extends EventDispatcher {
 
 		this.dispose = function () {};
 
+		this.createQuadLayer = function(widthPixels, heightPixels, widthGeo, heightGeo) {
+
+			const quadLayerInit = {
+				colorFormat: gl.RGBA8,
+				depthFormat: gl.DEPTH24_STENCIL8,
+				textureType: 'texture',
+				viewPixelWidth: widthPixels,
+				viewPixelHeight: heightPixels,
+				width: widthGeo,
+				height: heightGeo,
+				layout: 'mono',
+				space: referenceSpace,
+				isStatic: false
+			};
+
+			const quadLayer = glBinding.createQuadLayer(quadLayerInit);
+			// glQuadLayer.transform = new XRRigidTransform( {y: 1.0, z: -2} );
+
+			// session.updateRenderState( { layers: [glQuadLayer, glProjLayer]});
+
+			const renderTarget = new WebGLRenderTarget(
+				widthPixels, heightPixels,
+				{
+					format: RGBAFormat,
+					type: UnsignedByteType,
+					depthTexture: new DepthTexture(widthPixels, heightPixels, UnsignedInt248Type, undefined, undefined, undefined, undefined, undefined, undefined, undefined, DepthStencilFormat),
+					encoding: renderer.outputEncoding,
+					samples: 4
+				}
+			);
+			renderTarget.isXRRenderTarget = true; // TODO Remove this when possible, see #23278
+
+			return new WebXRQuadLayer(quadLayer, renderTarget, glBinding);
+
+		};
+
+		this.registerQuadLayer = function ( quadLayer, order ) {
+
+			quadLayers.push(
+				{
+					layer: quadLayer,
+					order: order
+				}
+			);
+			quadLayers = quadLayers.sort(
+				function ( a, b ) {
+
+					return a.order - b.order;
+
+				}
+			);
+
+			const layers = [];
+
+			for (let i = 0; i < quadLayers.length; i++)
+			{
+				layers.push(quadLayers[i].layer.layer);
+
+			}
+
+			layers.push( glProjLayer );
+
+			session.updateRenderState( { layers: layers } );
+
+		};
+
+		
+
+		this.unregisterQuadLayer = function ( quadLayer ) {
+
+			quadLayers = quadLayers.filter( ( layer ) => layer.layer !== quadLayer );
+
+			const layers = [];
+
+			for (let i = 0; i < quadLayers.length; i++)
+			{
+				layers.push(quadLayers[i].layer.layer);
+
+			}
+
+			layers.push( glProjLayer );
+
+			session.updateRenderState( { layers: layers } );
+
+		};
+
 	}
 
 }
 
-export { WebXRManager };
+export { WebXRManager, WebXRQuadLayer };
